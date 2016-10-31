@@ -59,27 +59,29 @@ def fillBlanks(user_id) :
     
 def getSimilars(user_id) :
     global user_item_similarity
-    user_item_similarity = pd.DataFrame['user_id', 'item_id','jaccard_index']
+    global current_user
+    global best_rated_items_among_users_similar_to_me
+    current_user = user_id
+    user_item_similarity = pd.DataFrame(columns=['user_id', 'item_id','jaccard_index'])
     user_similars_to_me = pd.DataFrame({'user_id':similarities[similarities['user_a_id'] == user_id]['user_b_id']})
     jobs_this_user_did_interact_with = pd.DataFrame({'item_id':interactions[interactions['user_id'] == user_id]['item_id']}).drop_duplicates()
     user_similars_to_me['user_id'].apply(lambda x: getItemsByUser(x))
 
     rated_items_by_users_similar_to_me = pd.DataFrame(user_item_similarity[~user_item_similarity['item_id'].isin(jobs_this_user_did_interact_with['item_id'])])
     rated_items_by_users_similar_to_me = rated_items_by_users_similar_to_me[['item_id','jaccard_index']]
-    best_rated_items_among_users_similar_to_me = pd.DataFrame(rated_items_by_users_similar_to_me.groupby('item_id').sum().sort_values(ascending=False)[:5]).reset_index()
+    best_rated_items_among_users_similar_to_me = pd.DataFrame(rated_items_by_users_similar_to_me.groupby('item_id').sum()).reset_index().sort('jaccard_index',ascending=False)[:5]
         
-    result = '' + best_rated_items_among_users_similar_to_me['item_id'].astype(str).str.cat(sep=' ')
-    
-    if not result:
+    if best_rated_items_among_users_similar_to_me.empty:
         return fillBlanks(user_id)
-    
-    return result
+    else:
+        return '' + best_rated_items_among_users_similar_to_me['item_id'].astype(str).str.cat(sep=' ')
             
-def getItemsByUser(user_id):
+def getItemsByUser(simil_user_id):
     global user_item_similarity
-    jobs_this_user_did_interact_with = pd.DataFrame({'user_id':user_id,'item_id':interactions[interactions['user_id'] == user_id]['item_id'],'jaccard_index':similarities[similarities['user_id'] == user_id]['jaccard_index']}).drop_duplicates()
-    pd.concat([user_item_similarity, jobs_this_user_did_interact_with], ignore_index=True)
-    return user_id
+    j_index = similarities[(similarities['user_a_id'] .isin([current_user]) & similarities['user_b_id'].isin([simil_user_id]))]['jaccard_index'].values[0]
+    jobs_this_user_did_interact_with = pd.DataFrame({'user_id':simil_user_id,'item_id':interactions[interactions['user_id'] == simil_user_id]['item_id'],'jaccard_index':j_index}).drop_duplicates()
+    user_item_similarity = pd.concat([user_item_similarity, jobs_this_user_did_interact_with], ignore_index=True)
+    return simil_user_id
     
 print ('Loading data ... ', datetime.datetime.now())
 
@@ -100,10 +102,13 @@ targets = pd.read_csv(os.environ['PATH_DS_TARGETS_TEST'], sep='\t', names=target
                            header=0)
 
 similarity_cols = ['user_a_id', 'user_b_id', 'jaccard_index']
-similarities = pd.read_csv(os.environ['PATH_DS_SIMILARITIES'], sep='\t', names=target_cols,
-                           header=0)
+similarities = pd.read_csv(os.environ['PATH_DS_SIMILARITIES'], sep=';', names=similarity_cols)
 
-user_item_similarity = pd.DataFrame['user_id', 'item_id','jaccard_index']
+user_item_similarity = pd.DataFrame(columns=['user_id', 'item_id','jaccard_index'])
+
+current_user = 0
+
+best_rated_items_among_users_similar_to_me = pd.DataFrame()
 
 """
 for every item i that u has no preference for yet
