@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 Created on Fri Oct 28 16:32:12 2016
-Pensamos que los mejor era buscar a los usuarios q se comportaron como yo
-ose q interactuaron con los mismo items q yo
-traer los otros items con los interactuaron q yo no
-ordenarlos agruparlos
-devolver 5
-@author: tatibloom
+
+@author: cecibloom
 """
 
 import pandas as pd
 import datetime
 import time
 import os
+import winsound
 
 print ('Executing z.py at ', datetime.datetime.now())
 
@@ -60,21 +57,31 @@ def fillBlanks(user_id) :
 
 def getRecommendations(target_user_id) :
     
+    #jobs_target_user_did_interact_with = pd.DataFrame({'item_id':interactions[interactions['user_id'] == target_user_id]['item_id']}).drop_duplicates()
+    
+    #print(time_in_millis())
+    #jobs_similar_to_user_jobs = pd.DataFrame(similarities[(similarities['item_a'].isin(jobs_target_user_did_interact_with['item_id']))]).sort_values(by='similarity',ascending=False)[:5]
+    
+    #jobs_similar_to_user_jobs = similarities.loc[np.in1d(similarities['item_a'], jobs_target_user_did_interact_with), 'item_b', 'similarity'].sort_values(by='similarity',ascending=False)[:5]
+    
+    #jobs_similar_to_user_jobs = similarities.query("item_a in @jobs_target_user_did_interact_with")
+    #print(time_in_millis())
+#    if jobs_similar_to_user_jobs.empty:
+#        return fillBlanks(target_user_id)
+#    else:
+#        return '' + jobs_similar_to_user_jobs['item_b'].astype(str).str.cat(sep=' ')
+
+
     jobs_target_user_did_interact_with = pd.DataFrame({'item_id':interactions[interactions['user_id'] == target_user_id]['item_id']}).drop_duplicates()
     
-    user_similars_to_me = pd.DataFrame(similarities[similarities['user_a_id'] == target_user_id])
-
-    ## Ya no con todos los items sino con los distintos                                   
-    #jobs_users_similar_to_target_user_did_interact_with = pd.merge(interactions[(~interactions['item_id'].isin(jobs_target_user_did_interact_with['item_id']))],user_similars_to_me, on='user_id')[['user_a_id','user_id','item_id','jaccard_index']]
+    jobs_similar_to_user_jobs = pd.DataFrame(similarities[(similarities['item_b'].isin(jobs_target_user_did_interact_with['item_id']))]).sort_values(by='similarity',ascending=False)#[:500]
+    jobs_similar_to_user_jobs = pd.DataFrame(jobs_similar_to_user_jobs[~(jobs_similar_to_user_jobs['item_a'].isin(jobs_target_user_did_interact_with['item_id']))])#[:5]
     
-    x = interactions[(~interactions['item_id'].isin(jobs_target_user_did_interact_with['item_id']))].drop_duplicates(['item_id','user_id'],keep='last')
-    jobs_users_similar_to_target_user_did_interact_with = pd.merge(x,user_similars_to_me, on='user_id')[['user_a_id','user_id','item_id','jaccard_index']]
-    best_rated_items_among_users_similar_to_me = pd.DataFrame(jobs_users_similar_to_target_user_did_interact_with.groupby('item_id').sum()).reset_index().sort('jaccard_index',ascending=False)[:5]
-    
-    if best_rated_items_among_users_similar_to_me.empty:
+    if jobs_similar_to_user_jobs.empty:
         return fillBlanks(target_user_id)
     else:
-        return '' + best_rated_items_among_users_similar_to_me['item_id'].astype(str).str.cat(sep=' ')
+        return '' + jobs_similar_to_user_jobs['item_a'].astype(str).str.cat(sep=' ')
+
             
     
 print ('Loading data ... ', datetime.datetime.now())
@@ -92,19 +99,15 @@ users = pd.read_csv(os.environ['PATH_DS_USERS'], sep='\t', names=user_profile_co
                            header=0)
 
 target_cols = ['user_id']
-targets = pd.read_csv(os.environ['PATH_DS_TARGETS'], sep='\t', names=target_cols,
+targets = pd.read_csv(os.environ['PATH_DS_TARGETS_TEST'], sep='\t', names=target_cols,
                            header=0)
 
-similarity_cols = ['user_a_id', 'user_id', 'jaccard_index']
-similarities = pd.read_csv(os.environ['PATH_DS_SIMILARITIES'], sep=';', names=similarity_cols)
+similarity_cols = ['item_a', 'item_b', 'similarity']
+similarities = pd.read_csv('d:/recsys/similarity_item_item.csv', sep=',', names=similarity_cols)
+
+print ('Finishing loading data ... ', datetime.datetime.now())
 
 
-
-
-"""
-for every item i that u has no preference for yet
-
-"""
 print ('Starting process at ', datetime.datetime.now(), ' [', time_in_millis(), ']') 
 
 targets['recommended_items'] = targets['user_id'].apply(lambda x: getRecommendations(x))
@@ -115,3 +118,6 @@ print ('Saving data ... ', datetime.datetime.now())
 file = 'd:/recsys/test/' + str(time_in_millis()) + '.csv'
 targets.astype(str).to_csv(file, sep=',', encoding='utf-8', index = False)
 print ('Done ... ', datetime.datetime.now())
+Freq = 1000 # Set Frequency To 2500 Hertz
+Dur = 1000 # Set Duration To 1000 ms == 1 second
+winsound.Beep(Freq,Dur)

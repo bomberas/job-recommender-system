@@ -2,6 +2,8 @@
 """
 Created on Sun Oct 30 18:20:00 2016
 
+Item based Collaborative Filtering
+
 @author: cecibloom
 @version: 2.3
 """
@@ -10,50 +12,85 @@ import pandas as pd
 import datetime
 import time
 import os
+import numpy as np
+import scipy.sparse as sps
+import logging
+import argparse
+from scipy.spatial.distance import cosine
 
-print ('Executing z2.3.py at ', datetime.datetime.now())
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 
 time_in_millis = lambda: int(round(time.time() * 1000))
-            
 
-print ('Loading data ... ', datetime.datetime.now())
+def read_dataset():
 
-interaction_cols = ['user_id', 'item_id', 'interaction_type', 'created_at']
-interactions = pd.read_csv(os.environ['PATH_DS_INTERACTIONS'], sep='\t', names=interaction_cols,
+    interaction_cols = ['user_id', 'item_id', 'interaction_type']
+    interactions = pd.read_csv(os.environ['PATH_DS_INTERACTIONS'], sep='\t', names=interaction_cols, usecols=[0,1,2],
+                               header=0)
+    
+    target_cols = ['user_id']
+    targets = pd.read_csv(os.environ['PATH_DS_TARGETS_TEST'], sep='\t', names=target_cols,
                            header=0)
+    
+    interaction_items_cols = ['item_id']
+    items_with_interactions = pd.read_csv(os.environ['PATH_DS_INTERACTION_ITEMS_TEST'], sep='\t', names=interaction_items_cols, usecols=[0],
+                               header=0)
+    
+    return interactions, items_with_interactions, targets
 
-item_profile_cols = ['item_id', 'title', 'career_level', 'discipline_id', 'industry_id', 'country', 'region', 'latitude', 'longitude', 'employment', 'tags', 'created_at', 'active_during_test']
-items = pd.read_csv(os.environ['PATH_DS_ITEMS'], sep='\t', names=item_profile_cols,
-                           header=0)
+def holdout_split(data, perc=0.8, seed=10111213):
+    # set the random seed
+    rng = np.random.RandomState(seed)
+    # shuffle data
+    nratings = data.shape[0]
+    shuffle_idx = rng.permutation(nratings)
+    train_size = int(nratings * perc)
+    # split data according to the shuffled index and the holdout size
+    train_split = data.ix[shuffle_idx[:train_size]]
+    test_split = data.ix[shuffle_idx[train_size:]]
+    return train_split, test_split
+ 
+def similarity(i, j, interactions):
+    
+    count_i_j = len(pd.merge((pd.DataFrame(interactions[interactions['item_id'] == i]['user_id'])).drop_duplicates(), (pd.DataFrame(interactions[interactions['item_id'] == j]['user_id'])).drop_duplicates(), how='inner', on=['user_id']))
+    count_j = len((pd.DataFrame(interactions[interactions['item_id'] == j]['user_id'])).drop_duplicates())
+    
+    return count_i_j/(count_j + 50)
+     
 
-user_profile_cols = ['user_id', 'jobroles', 'career_level', 'discipline_id', 'industry_id', 'country', 'region', 'experience_n_entries_class', 'experience_years_experience', 'experience_years_in_current', 'edu_degree', 'edu_fieldofstudies']
-users = pd.read_csv(os.environ['PATH_DS_USERS'], sep='\t', names=user_profile_cols,
-                           header=0)
-
-target_cols = ['user_id']
-targets = pd.read_csv(os.environ['PATH_DS_TARGETS_TEST'], sep='\t', names=target_cols,
-                           header=0)
-
-print ('Data fully loaded... ', datetime.datetime.now())
-
-row_items_with_interactions = pd.DataFrame({'item_id' : items[items.item_id.isin(interactions['item_id'])]['item_id']})
-row_items_with_interactions = row_items_with_interactions.sort(['item_id'],ascending=True)
-col_items_with_interactions = row_items_with_interactions[:5]
-
-print(col_items_with_interactions)
-col_items_with_interactions = pd.DataFrame(['item_id'])
-print(col_items_with_interactions)
-similitud = pd.DataFrame(['item_id_A', 'item_id_B', 'coeff'])
-#similitud['coeff'] = row_items_with_interactions['item_id'].apply(lambda x: )
+def getSimilarItems(item, interactions):
+    
+    global similarity_matrix
+    
+    users_interacted_this_item = pd.DataFrame({'user_id':interactions[interactions['item_id'] == item]['user_id']}).drop_duplicates()
+    other_items_users_interacted_with  = pd.DataFrame({'item_id':interactions[(interactions['user_id'].isin(users_interacted_this_item['user_id'])) & ~(interactions['item_id'] == item)]['item_id']}).drop_duplicates()    
+    
+    local_similarity_matrix = pd.DataFrame({'item_id_a':item, 'item_id_b' : other_items_users_interacted_with['item_id'], 'coef' : 0})
+    c = time_in_millis()
+    local_similarity_matrix['coef'] = local_similarity_matrix['item_id_b'].apply(lambda x: similarity(item, x, interactions))
+    print ('At ', ' [', time_in_millis() - c, ']') 
+    similarity_matrix = pd.concat([similarity_matrix, local_similarity_matrix], ignore_index=True)
+    
+    return other_items_users_interacted_with['item_id'].astype(str).str.cat(sep='|');
 
 
+print ('Starting reading datasets at ', datetime.datetime.now(), ' [', time_in_millis(), ']')     
+interactions, items, targets = read_dataset()
+print ('Finishing reading datasets at ', datetime.datetime.now(), ' [', time_in_millis(), ']')     
 
+similarity_matrix = pd.DataFrame(columns=['item_id_a','item_id_b','coef'])
+similar_items = pd.DataFrame({'item_id':items['item_id'],'similars':'-'})
 
+print ('Starting process at ', datetime.datetime.now(), ' [', time_in_millis(), ']') 
+similar_items['similars'] = similar_items['item_id'].apply(lambda x: getSimilarItems(x, interactions))
+print ('Finishing process at ', datetime.datetime.now(), ' [', time_in_millis(), ']') 
 
-#similitud_items = pd.DataFrame({'coeff':0})
-#similitud_items['coeff'] = row_items_with_interactions['item_id'].apply(lambda x: getSimilars(x))
-#
-
-
+print ('Saving data ... ', datetime.datetime.now())
+file = 'd:/recsys/test/' + str(time_in_millis()) + '.csv'
+similarity_matrix.astype(str).to_csv(file, sep=',', encoding='utf-8', index = False)
+print ('Done ... ', datetime.datetime.now())
 
 
